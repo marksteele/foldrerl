@@ -26,5 +26,7 @@ This is a quick library to retrieve a folder from a remote erlang node which has
 * LocalPath is the local path to store the files in.
 
 Notes:
+* Files are checksummed to ensure transfers succeeded.
+* It will retry up to 10 times
 * This library performs some RPC calls, so nodes must be properly clustered.
 * The root of the remote path will be stripped in the local path. For example, if your remote path is "/foo", local path "/baz" and you have a remote file "/foo/bar/buz" then the file will be dropped in "/baz/bar/buz".

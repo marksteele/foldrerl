@@ -9,6 +9,7 @@
 -module(foldrerl).
 
 -define(TIMEOUT,10000).
+-define(MAX_RETRIES,10).
 
 %% API
 -export([
@@ -63,34 +64,33 @@ retrieve_files(Manifest,Node,PeerPath,LocalPath) ->
                                 {reuseaddr, true}
                                ]
                               ),
-  retrieve_files(Manifest,Node,PeerPath,LocalPath,LSock).
+  retrieve_files(Manifest,Node,PeerPath,LocalPath,LSock,0).
 
-retrieve_files([],_,_,_,_) ->
+retrieve_files([],_,_,_,_,_) ->
   ok;
-retrieve_files([{Path,MD5}|Manifest],Node,PeerPath,LocalPath,LSock) ->
-  %% Remove leading slash
-  Stripped0 = string:strip(Path,left,$/),
-  %% Strip out source path root
-  Stripped1 = string:substr(Stripped0,string:span(PeerPath,Stripped0)),
-  %% Remove any remaining leading slashes
-  Stripped2 = string:strip(Stripped1,left,$/),
-  %% Join to new path
-  NewPath = filename:join(LocalPath,Stripped2),
-
-  ok = filelib:ensure_dir(NewPath),
-  {ok,File} = file:open(NewPath,[write]),
-  {ok, {Address,Port}} = inet:sockname(LSock),
-  ok = rpc:call(Node,foldrerl,send_file,[Path,Address,Port]),
-  {ok, Sock} = gen_tcp:accept(LSock),
-  ok = receive_file(Sock,File),
-  ok = file:close(File),
-  gen_tcp:close(Sock),
-  {ok,Digest} = lib_md5:file(NewPath),
-  case Digest of
-    MD5 ->
-      retrieve_files(Manifest,Node,PeerPath,LocalPath,LSock);
-    _ ->
-      retrieve_files([{Path,MD5}|Manifest],Node,PeerPath,LocalPath,LSock)
+retrieve_files(_,_,_,_,_,Errors) when Errors =:= ?MAX_RETRIES ->
+  error;
+retrieve_files([{Path,MD5}|Manifest],Node,PeerPath,LocalPath,LSock,Errors) ->
+  %% Chop off leading path and /
+  Stripped = string:strip(
+               re:replace(Path,PeerPath,"",[global,{return,list}])
+              ),
+  NewPath = filename:join(LocalPath,Stripped),
+  try
+    ok = filelib:ensure_dir(NewPath),
+    {ok,File} = file:open(NewPath,[write]),
+    {ok, {Address,Port}} = inet:sockname(LSock),
+    ok = rpc:call(Node,foldrerl,send_file,[Path,Address,Port]),
+    {ok, Sock} = gen_tcp:accept(LSock),
+    ok = receive_file(Sock,File),
+    ok = file:close(File),
+    gen_tcp:close(Sock),
+    {ok,Digest} = lib_md5:file(NewPath),
+    MD5 = Digest,
+    retrieve_files(Manifest,Node,PeerPath,LocalPath,LSock,Errors)
+  catch
+    _:_ ->
+      retrieve_files([{Path,MD5}|Manifest],Node,PeerPath,LocalPath,LSock,Errors)
   end.
 
 receive_file(Sock,File) ->

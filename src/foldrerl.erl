@@ -23,9 +23,10 @@
 %%%===================================================================
 
 retrieve_folder(Node, PeerPath, LocalPath) ->
-  %% Spawn local gen_fsm to handle this transfer
-  {ok, Manifest} = rpc:call(Node,foldrerl,folder_manifest,[PeerPath]),
-  retrieve_files(Manifest,Node,PeerPath,LocalPath).
+  CleanPeerPath = remove_trailing_slash(PeerPath),
+  CleanLocalPath = remove_trailing_slash(LocalPath),
+  {ok, Manifest} = rpc:call(Node,foldrerl,folder_manifest,[CleanPeerPath]),
+  retrieve_files(Manifest,Node,CleanPeerPath,CleanLocalPath).
 
 folder_manifest(Path) ->
   {ok, filelib:fold_files(
@@ -55,6 +56,9 @@ send_file(Path, Host, Port) ->
 %%% Internal functions
 %%%===================================================================
 
+remove_trailing_slash(Path) ->
+  string:strip(Path,right,$/).
+
 retrieve_files(Manifest,Node,PeerPath,LocalPath) ->
   {ok, LSock} = gen_tcp:listen(0,
                                [
@@ -71,13 +75,7 @@ retrieve_files([],_,_,_,_,_) ->
 retrieve_files(_,_,_,_,_,Errors) when Errors =:= ?MAX_RETRIES ->
   error;
 retrieve_files([{Path,MD5}|Manifest],Node,PeerPath,LocalPath,LSock,Errors) ->
-  %% Chop off leading path and /
-  Stripped = string:strip(
-               re:replace(Path,PeerPath,"",[global,{return,list}]),
-               left,
-               $/
-              ),
-  NewPath = filename:join(LocalPath,Stripped),
+  NewPath = re:replace(Path,"^" ++ PeerPath,LocalPath,[{return,list}]),
   try
     ok = filelib:ensure_dir(NewPath),
     {ok,File} = file:open(NewPath,[write]),

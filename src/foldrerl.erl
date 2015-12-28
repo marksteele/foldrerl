@@ -75,8 +75,8 @@ retrieve_files([],_,_,_,_,_) ->
 retrieve_files(_,_,_,_,_,Errors) when Errors =:= ?MAX_RETRIES ->
   error;
 retrieve_files([{Path,MD5}|Manifest],Node,PeerPath,LocalPath,LSock,Errors) ->
-  NewPath = re:replace(Path,"^" ++ PeerPath,LocalPath,[{return,list}]),
   try
+    NewPath = re:replace(Path,"^" ++ PeerPath,LocalPath,[{return,list}]),
     ok = filelib:ensure_dir(NewPath),
     {ok,File} = file:open(NewPath,[write]),
     {ok, {Address,Port}} = inet:sockname(LSock),

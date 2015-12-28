@@ -73,7 +73,9 @@ retrieve_files(_,_,_,_,_,Errors) when Errors =:= ?MAX_RETRIES ->
 retrieve_files([{Path,MD5}|Manifest],Node,PeerPath,LocalPath,LSock,Errors) ->
   %% Chop off leading path and /
   Stripped = string:strip(
-               re:replace(Path,PeerPath,"",[global,{return,list}])
+               re:replace(Path,PeerPath,"",[global,{return,list}]),
+               left,
+               $/
               ),
   NewPath = filename:join(LocalPath,Stripped),
   try

@@ -2,11 +2,13 @@
 {application, foldrerl,
  [
   {description, ""},
-  {vsn, "1"},
+  {vsn, git},
   {registered, []},
   {applications, [
                   kernel,
-                  stdlib
+                  stdlib,
+                  lager
                  ]},
+  {mod, {foldrerl_app,[]}},
   {env, []}
  ]}.

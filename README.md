@@ -4,13 +4,12 @@ Erlang application to replicate a folder hierarchy between two nodes
 ## Quick start
 
 ```
-[root@dev1 foldrerl]# rebar compile; rebar shell
-==> foldrerl (compile)
-==> foldrerl (shell)
+[root@dev1 foldrerl]# rebar get-deps clean compile shell
 Erlang/OTP 17 [erts-6.4] [source-2e19e2f] [64-bit] [smp:4:4] [async-threads:10] [hipe] [kernel-poll:false]
 
 Eshell V6.4  (abort with ^G)
-1> foldrerl:retrieve_folder(node(),"/tmp/foo","/tmp/bar").
+1> application:ensure_all_started(foldrerl).
+2> foldrerl:retrieve_folder(node(),"/tmp/foo","/tmp/bar").
 ok
 ```
 

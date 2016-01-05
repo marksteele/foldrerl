@@ -171,38 +171,40 @@ remove_trailing_slash(Path) ->
   string:strip(Path,right,$/).
 
 retrieve_files(Manifest,Node,PeerPath,LocalPath) ->
-    {ok, LSock} = gen_tcp:listen(0,
+  {ok, {IP,Port}} = application:get_env(foldrerl,address),
+  {ok, ParsedIP} = inet:parse_address(IP),
+  {ok, LSock} = gen_tcp:listen(Port,
                                [
+                                {ip,ParsedIP},
                                 binary,
                                 {packet, 0},
                                 {active, false},
                                 {reuseaddr, true}
                                ]
                               ),
-  retrieve_files(Manifest,Node,PeerPath,LocalPath,LSock,0).
+  retrieve_files(Manifest,Node,PeerPath,LocalPath,LSock,0,ParsedIP,Port).
 
-retrieve_files([],_,_,_,LSock,_) ->
+retrieve_files([],_,_,_,LSock,_,_,_) ->
   gen_tcp:close(LSock),
   ok;
-retrieve_files(_,_,_,_,_,Errors) when Errors =:= ?MAX_RETRIES ->
+retrieve_files(_,_,_,_,_,Errors,_,_) when Errors =:= ?MAX_RETRIES ->
   error;
-retrieve_files([{Path,MD5}|Manifest],Node,PeerPath,LocalPath,LSock,Errors) ->
+retrieve_files([{Path,MD5}|Manifest],Node,PeerPath,LocalPath,LSock,Errors,IP,Port) ->
   try
     NewPath = re:replace(Path,"^" ++ PeerPath,LocalPath,[{return,list}]),
     ok = filelib:ensure_dir(NewPath),
     {ok,File} = file:open(NewPath,[write]),
-    {ok, {Address,Port}} = inet:sockname(LSock),
-    gen_server:cast({?SERVER,Node},{send_file,Path,Address,Port}),
+    gen_server:cast({?SERVER,Node},{send_file,Path,IP,Port}),
     {ok, Sock} = gen_tcp:accept(LSock),
     ok = receive_file(Sock,File),
     ok = file:close(File),
     gen_tcp:close(Sock),
     {ok,Digest} = lib_md5:file(NewPath),
     MD5 = Digest,
-    retrieve_files(Manifest,Node,PeerPath,LocalPath,LSock,Errors)
+    retrieve_files(Manifest,Node,PeerPath,LocalPath,LSock,Errors,IP,Port)
   catch
     _:_ ->
-      retrieve_files([{Path,MD5}|Manifest],Node,PeerPath,LocalPath,LSock,Errors)
+      retrieve_files([{Path,MD5}|Manifest],Node,PeerPath,LocalPath,LSock,Errors,IP,Port)
   end.
 
 receive_file(Sock,File) ->

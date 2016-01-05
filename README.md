@@ -9,6 +9,7 @@ Erlang/OTP 17 [erts-6.4] [source-2e19e2f] [64-bit] [smp:4:4] [async-threads:10] 
 
 Eshell V6.4  (abort with ^G)
 1> application:ensure_all_started(foldrerl).
+2> application:set_env(foldrerl,address,{"127.0.0.1",12345}).
 2> foldrerl:retrieve_folder(node(),"/tmp/foo","/tmp/bar").
 ok
 ```
@@ -16,6 +17,11 @@ ok
 ### Introduction
 
 This is a quick library to retrieve a folder from a remote erlang node which has this library installed.
+
+The library assumes you've got an environment variable which is set to the listening socket IP/port pair under the key foldrerl->address (as in the example above).
+
+This is to allow for erlang distribution being on a different interface than the file transfers. The address is sent to the peer (which then connects back over TCP). Therefore, using loopback interfaces won't work (duh), nor will the 0.0.0.0 address (the listening socket will work, but the client won't know how to call back).
+
 
 ### API
 

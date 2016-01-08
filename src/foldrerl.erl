@@ -201,9 +201,11 @@ retrieve_files([{Path,MD5}|Manifest],Node,PeerPath,LocalPath,LSock,Errors,IP,Por
     gen_tcp:close(Sock),
     {ok,Digest} = lib_md5:file(NewPath),
     MD5 = Digest,
+    lager:debug("File ~p received successfully",[Path]),
     retrieve_files(Manifest,Node,PeerPath,LocalPath,LSock,Errors,IP,Port)
   catch
     _:_ ->
+      lager:debug("Error transfering file: ~p",[Path]),
       retrieve_files([{Path,MD5}|Manifest],Node,PeerPath,LocalPath,LSock,Errors,IP,Port)
   end.
 

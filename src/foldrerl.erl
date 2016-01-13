@@ -24,7 +24,10 @@
 -define(MAX_RETRIES,10).
 -define(DEFAULT_TIMEOUT,100000).
 
--record(state, {}).
+-include_lib("public_key/include/public_key.hrl").
+-define(PEM_ENCODED_LINE_LENGTH, 64).
+
+-record(state, {cert,key,ca,ca_bin}).
 
 %%%===================================================================
 %%% API
@@ -41,11 +44,9 @@ start_link() ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 retrieve_folder(Node, PeerPath, LocalPath) ->
-  lager:debug("Initiating file transfer, grabbing remote folder: ~p on node ~p and copying to ~p",[PeerPath,Node,LocalPath]),
   CleanPeerPath = remove_trailing_slash(PeerPath),
   CleanLocalPath = remove_trailing_slash(LocalPath),
   {ok, Manifest} = gen_server:call({?SERVER,Node},{manifest,CleanPeerPath}),
-  lager:debug("Received folder manifest, starting transfer"),
   retrieve_files(Manifest,Node,CleanPeerPath,CleanLocalPath).
 
 %%%===================================================================
@@ -64,7 +65,11 @@ retrieve_folder(Node, PeerPath, LocalPath) ->
 %% @end
 %%--------------------------------------------------------------------
 init([]) ->
-  {ok, #state{}}.
+  {ok, Cert} = application:get_env(foldrerl,cert),
+  {ok, Key} = application:get_env(foldrerl,key),
+  {ok, CA} = application:get_env(foldrerl,ca),
+  {ok, CACertBin} = file:read_file(CA),
+  {ok, #state{cert=Cert,key=Key,ca=CA,ca_bin=CACertBin}}.
 
 %%--------------------------------------------------------------------
 %% @private
@@ -82,7 +87,6 @@ init([]) ->
 %%--------------------------------------------------------------------
 
 handle_call({manifest,Path},_From,S) ->
-  lager:debug("Generating folder manifest for path ~p",[Path]),
   {reply,
    {ok,
     filelib:fold_files(
@@ -112,13 +116,37 @@ handle_call(_Request, _From, State) ->
 %% @end
 %%--------------------------------------------------------------------
 
-handle_cast({send_file,Path, Host, Port},State) ->
-  lager:debug("Sending file ~p to ~p:~p",[Path,Host,Port]),
+handle_cast({send_file,Path, Host, Port},
+            State=#state{cert=Cert,key=Key,ca=CA}) ->
   spawn(
     fun() ->
-        {ok, Sock} = gen_tcp:connect(Host, Port, [binary, {packet,0}]),
-        {ok, _Bytes} = file:sendfile(Path,Sock),
-        lager:debug("File ~p sent to ~p:~p successfully",[Path,Host,Port])
+        {ok, Sock} = ssl:connect(
+                       Host,
+                       Port,
+                       [
+                        binary,
+                        {packet,0},
+                        {certfile,Cert},
+                        {keyfile,Key},
+                        {cacertfile,CA},
+                        {versions,['tlsv1.2']},
+                        {ciphers,
+                         [
+                          "ECDHE-ECDSA-AES256-SHA384",
+                          "ECDHE-RSA-AES256-SHA384",
+                          "ECDH-ECDSA-AES256-SHA384",
+                          "ECDH-RSA-AES256-SHA384",
+                          "DHE-RSA-AES256-SHA256",
+                          "DHE-DSS-AES256-SHA256",
+                          "ECDHE-ECDSA-AES128-SHA256",
+                          "ECDHE-RSA-AES128-SHA256",
+                          "ECDH-ECDSA-AES128-SHA256",
+                          "ECDH-RSA-AES128-SHA256",
+                          "DHE-RSA-AES128-SHA256",
+                          "DHE-DSS-AES128-SHA256"
+                         ]}
+                       ]),
+        ok = send_file(Sock,Path)
     end),
   {noreply, State};
 
@@ -172,20 +200,46 @@ remove_trailing_slash(Path) ->
 
 retrieve_files(Manifest,Node,PeerPath,LocalPath) ->
   {ok, {IP,Port}} = application:get_env(foldrerl,address),
+  {ok, Cert} = application:get_env(foldrerl,cert),
+  {ok, Key} = application:get_env(foldrerl,key),
+  {ok, CA} = application:get_env(foldrerl,ca),
   {ok, ParsedIP} = inet:parse_address(IP),
-  {ok, LSock} = gen_tcp:listen(Port,
+  {ok, LSock} = ssl:listen(Port,
                                [
-                                {ip,ParsedIP},
+                                {certfile,Cert},
+                                {keyfile,Key},
+                                {cacertfile,CA},
+                                {depth,0},
+                                {verify,verify_peer},
+                                {fail_if_no_peer_cert,true},
+                                {honor_cipher_order, true},
+                                {versions,['tlsv1.2']},
+                                {ciphers,
+                                 [
+                                  "ECDHE-ECDSA-AES256-SHA384",
+                                  "ECDHE-RSA-AES256-SHA384",
+                                  "ECDH-ECDSA-AES256-SHA384",
+                                  "ECDH-RSA-AES256-SHA384",
+                                  "DHE-RSA-AES256-SHA256",
+                                  "DHE-DSS-AES256-SHA256",
+                                  "ECDHE-ECDSA-AES128-SHA256",
+                                  "ECDHE-RSA-AES128-SHA256",
+                                  "ECDH-ECDSA-AES128-SHA256",
+                                  "ECDH-RSA-AES128-SHA256",
+                                  "DHE-RSA-AES128-SHA256",
+                                  "DHE-DSS-AES128-SHA256"
+                                 ]},
                                 binary,
                                 {packet, 0},
                                 {active, false},
                                 {reuseaddr, true}
                                ]
                               ),
+
   retrieve_files(Manifest,Node,PeerPath,LocalPath,LSock,0,ParsedIP,Port).
 
 retrieve_files([],_,_,_,LSock,_,_,_) ->
-  gen_tcp:close(LSock),
+  ssl:close(LSock),
   ok;
 retrieve_files(_,_,_,_,_,Errors,_,_) when Errors =:= ?MAX_RETRIES ->
   error;
@@ -195,22 +249,21 @@ retrieve_files([{Path,MD5}|Manifest],Node,PeerPath,LocalPath,LSock,Errors,IP,Por
     ok = filelib:ensure_dir(NewPath),
     {ok,File} = file:open(NewPath,[write]),
     gen_server:cast({?SERVER,Node},{send_file,Path,IP,Port}),
-    {ok, Sock} = gen_tcp:accept(LSock),
+    {ok, Sock} = ssl:transport_accept(LSock),
+    ok = ssl:ssl_accept(Sock),
     ok = receive_file(Sock,File),
     ok = file:close(File),
-    gen_tcp:close(Sock),
+    ssl:close(Sock),
     {ok,Digest} = lib_md5:file(NewPath),
     MD5 = Digest,
-    lager:debug("File ~p received successfully",[Path]),
     retrieve_files(Manifest,Node,PeerPath,LocalPath,LSock,Errors,IP,Port)
   catch
     _:_ ->
-      lager:debug("Error transfering file: ~p",[Path]),
       retrieve_files([{Path,MD5}|Manifest],Node,PeerPath,LocalPath,LSock,Errors,IP,Port)
   end.
 
 receive_file(Sock,File) ->
-  case gen_tcp:recv(Sock, 0, ?DEFAULT_TIMEOUT) of
+  case ssl:recv(Sock, 0, ?DEFAULT_TIMEOUT) of
     {ok, B} ->
       case file:write(File,B) of
         ok ->
@@ -220,4 +273,29 @@ receive_file(Sock,File) ->
       end;
     {error, closed} ->
       ok
+  end.
+
+send_file(Sock,Filename) ->
+  case file:open(Filename,[read,raw,binary]) of
+    {ok, RawFile} ->
+      send_file(Sock,RawFile,0);
+    _ ->
+      error
+  end.
+
+send_file(Sock,File,Offset) ->
+  {ok,Offset} = file:position(File,{bof,Offset}),
+  case file:read(File,16#1FFF) of
+    {ok, IoData} ->
+      case ssl:send(Sock,IoData) of
+        ok ->
+          send_file(Sock,File,Offset+byte_size(IoData));
+        _ ->
+          error
+      end;
+    eof ->
+      file:close(File),
+      ok;
+    _ ->
+      error
   end.

@@ -10,7 +10,10 @@ Erlang/OTP 17 [erts-6.4] [source-2e19e2f] [64-bit] [smp:4:4] [async-threads:10] 
 Eshell V6.4  (abort with ^G)
 1> application:ensure_all_started(foldrerl).
 2> application:set_env(foldrerl,address,{"127.0.0.1",12345}).
-2> foldrerl:retrieve_folder(node(),"/tmp/foo","/tmp/bar").
+3> application:set_env(foldrerl,cert,"/tmp/cert.pem").
+4> application:set_env(foldrerl,key,"/tmp/key.pem").
+5> application:set_env(foldrerl,ca,"/tmp/cacert.pem").
+3> foldrerl:retrieve_folder(node(),"/tmp/foo","/tmp/bar").
 ok
 ```
 

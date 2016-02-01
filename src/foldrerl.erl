@@ -232,7 +232,8 @@ retrieve_files(Manifest,Node,PeerPath,LocalPath) ->
                                 binary,
                                 {packet, 0},
                                 {active, false},
-                                {reuseaddr, true}
+                                {reuseaddr, true},
+                                {ip,ParsedIP}
                                ]
                               ),
 
